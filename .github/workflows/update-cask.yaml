@@ -1,0 +1,85 @@
+name: Update Cask
+
+on:
+  schedule:
+    # Check for new releases every hour
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    # Allow manual trigger
+
+jobs:
+  check-and-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get latest release from ig-desktop
+        id: latest
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/inspektor-gadget/ig-desktop/releases/latest | jq -r '.tag_name')
+          echo "LATEST_TAG=$LATEST" >> "$GITHUB_OUTPUT"
+          # Remove 'v' prefix for cask version
+          LATEST_VERSION="${LATEST#v}"
+          echo "LATEST_VERSION=$LATEST_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Latest release: $LATEST (version: $LATEST_VERSION)"
+
+      - name: Get current cask version
+        id: current
+        run: |
+          CURRENT=$(grep -oP 'version "\K[^"]+' Casks/ig-desktop.rb)
+          echo "CURRENT_VERSION=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "Current cask version: $CURRENT"
+
+      - name: Check if update needed
+        id: check
+        run: |
+          if [ "${{ steps.latest.outputs.LATEST_VERSION }}" = "${{ steps.current.outputs.CURRENT_VERSION }}" ]; then
+            echo "UPDATE_NEEDED=false" >> "$GITHUB_OUTPUT"
+            echo "Already up to date"
+          else
+            echo "UPDATE_NEEDED=true" >> "$GITHUB_OUTPUT"
+            echo "Update needed: ${{ steps.current.outputs.CURRENT_VERSION }} -> ${{ steps.latest.outputs.LATEST_VERSION }}"
+          fi
+
+      - name: Download release and calculate SHA256
+        if: steps.check.outputs.UPDATE_NEEDED == 'true'
+        id: sha256
+        run: |
+          URL="https://github.com/inspektor-gadget/ig-desktop/releases/download/${{ steps.latest.outputs.LATEST_TAG }}/ig-desktop-macos.app.zip"
+          echo "Downloading from: $URL"
+          SHA256=$(curl -sL "$URL" | shasum -a 256 | cut -d' ' -f1)
+          echo "SHA256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "Calculated SHA256: $SHA256"
+
+      - name: Update cask formula
+        if: steps.check.outputs.UPDATE_NEEDED == 'true'
+        run: |
+          CASK_FILE="Casks/ig-desktop.rb"
+
+          # Update version
+          sed -i 's/version "[^"]*"/version "${{ steps.latest.outputs.LATEST_VERSION }}"/' "$CASK_FILE"
+
+          # Update sha256
+          sed -i 's/sha256 "[^"]*"/sha256 "${{ steps.sha256.outputs.SHA256 }}"/' "$CASK_FILE"
+
+          echo "Updated cask formula:"
+          cat "$CASK_FILE"
+
+      - name: Create Pull Request
+        if: steps.check.outputs.UPDATE_NEEDED == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Update ig-desktop to ${{ steps.latest.outputs.LATEST_TAG }}"
+          title: "Update ig-desktop to ${{ steps.latest.outputs.LATEST_TAG }}"
+          body: |
+            Automated update - new release detected.
+
+            **Version:** ${{ steps.latest.outputs.LATEST_TAG }}
+            **SHA256:** `${{ steps.sha256.outputs.SHA256 }}`
+
+            [Release notes](https://github.com/inspektor-gadget/ig-desktop/releases/tag/${{ steps.latest.outputs.LATEST_TAG }})
+          branch: update-ig-desktop-${{ steps.latest.outputs.LATEST_VERSION }}
+          delete-branch: true
+          labels: automated-update
