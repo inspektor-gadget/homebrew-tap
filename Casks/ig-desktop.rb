@@ -1,6 +1,6 @@
 cask "ig-desktop" do
-  version "0.3.1"
-  sha256 "3cd2580325133c7b561bb83b00c21ceb255ff298a1efbbe293c43172a87ee5bb"
+  version "0.3.3"
+  sha256 "78aca2dfb8cf8fd0626e42b2188008e5dced3456723b627234122b28a064dcb6"
 
   url "https://github.com/inspektor-gadget/ig-desktop/releases/download/v#{version}/ig-desktop-macos.app.zip"
   name "Inspektor Gadget Desktop"
